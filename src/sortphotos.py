@@ -429,7 +429,10 @@ def sortPhotos(src_dir, dest_dir, sort_format, rename_format, recursive=False,
         else:
 
             if fileIsIdentical:
-                continue  # ignore identical files
+                if copy_files:
+                    continue  # ignore identical files
+                else:
+                    os.remove(src_file)
             else:
                 if copy_files:
                     shutil.copy2(src_file, dest_file)
