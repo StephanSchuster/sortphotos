@@ -172,7 +172,7 @@ def check_for_early_morning_photos(date, day_begins):
     """check for early hour photos to be grouped with previous day"""
 
     if date.hour < day_begins:
-        print('moving this photo to the previous day for classification purposes (day_begins=' + str(day_begins) + ')')
+        print('Moving this photo to the previous day for classification purposes (day_begins=' + str(day_begins) + ').')
         date = date - timedelta(hours=date.hour+1)  # push it to the day before for classificiation purposes
 
     return date
@@ -309,7 +309,7 @@ def sortPhotos(src_dir, dest_dir, sort_format, rename_format, recursive=False,
 
     # get all metadata
     with ExifTool(verbose=verbose) as e:
-        print('Preprocessing with ExifTool.  May take a while for a large number of files.')
+        print('Preprocessing with ExifTool ...')
         sys.stdout.flush()
         metadata = e.get_metadata(*args)
 
@@ -333,7 +333,7 @@ def sortPhotos(src_dir, dest_dir, sort_format, rename_format, recursive=False,
         # write out which photo we are at
             ending = ']'
             if test:
-                ending = '] (TEST - no files are being moved/copied)'
+                ending = '] TEST --> No files are being moved/copied'
             print('[' + str(idx+1) + '/' + str(num_files) + ending)
             print('Source: ' + src_file)
         else:
@@ -346,14 +346,14 @@ def sortPhotos(src_dir, dest_dir, sort_format, rename_format, recursive=False,
         # check if no valid date found
         if not date:
             if verbose:
-                print('No valid dates were found using the specified tags.  File will remain where it is.')
+                print('No valid dates were found using the specified tags. File will remain where it is.')
                 print()
                 # sys.stdout.flush()
             continue
 
         # ignore hidden files
         if os.path.basename(src_file).startswith('.'):
-            print('hidden file.  will be skipped')
+            print('File is hidden and will be skipped.')
             print()
             continue
 
@@ -411,7 +411,7 @@ def sortPhotos(src_dir, dest_dir, sort_format, rename_format, recursive=False,
                 if remove_duplicates and filecmp.cmp(src_file, dest_compare):  # check for identical files
                     fileIsIdentical = True
                     if verbose:
-                        print('Identical file already exists.  Duplicate will be ignored.\n')
+                        print('Identical file already exists. Duplicate will be ignored.')
                     break
 
                 else:  # name is same, but file is different
@@ -422,7 +422,7 @@ def sortPhotos(src_dir, dest_dir, sort_format, rename_format, recursive=False,
                         dest_file = root + '_' + str(append) + ext
                     append += 1
                     if verbose:
-                        print('Same name already exists...renaming to: ' + dest_file)
+                        print('Same name already exists. Renaming file to: ' + dest_file)
 
             else:
                 break
