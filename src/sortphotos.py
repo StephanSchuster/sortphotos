@@ -227,7 +227,7 @@ class ExifTool(object):
 def sortPhotos(src_dir, dest_dir, sort_format, rename_format, recursive=False,
         copy_files=False, test=False, remove_duplicates=True, day_begins=0,
         additional_groups_to_ignore=['File'], additional_tags_to_ignore=[],
-        use_only_groups=None, use_only_tags=None, verbose=True, keep_filename=False, use_local_time=False):
+        use_only_groups=None, use_only_tags=None, verbose=True, keep_filename=False, use_local_time=False, if_condition=None):
     """
     This function is a convenience wrapper around ExifTool based on common usage scenarios for sortphotos.py
 
@@ -269,6 +269,8 @@ def sortPhotos(src_dir, dest_dir, sort_format, rename_format, recursive=False,
         True if you want to see details of file processing
     use_local_time : bool
         True to disable time zone adjustements and use local time instead of UTC time
+    if_condition : str
+        a condition clause which is passed to exiftool in order to filter files that get processed
 
     """
 
@@ -278,6 +280,10 @@ def sortPhotos(src_dir, dest_dir, sort_format, rename_format, recursive=False,
 
     # setup arguments to exiftool
     args = ['-j', '-a', '-G']
+
+    # setup if clause for exiftool
+    if if_condition and not if_condition.isspace():
+        args += ['-if', if_condition]
 
     # setup tags to ignore
     if use_only_tags is not None:
@@ -500,6 +506,8 @@ def main():
     parser.add_argument('--use-local-time', action='store_true',
                     help='True to disable time zone adjustements and use local time instead of UTC time',
                     default=False)
+    parser.add_argument('--if-condition', type=str, default=None,
+                    help='a condition clause which is passed to exiftool in order to filter files that get processed')
 
     # parse command line arguments
     args = parser.parse_args()
@@ -507,7 +515,7 @@ def main():
     sortPhotos(args.src_dir, args.dest_dir, args.sort, args.rename, args.recursive,
         args.copy, args.test, not args.keep_duplicates, args.day_begins,
         args.ignore_groups, args.ignore_tags, args.use_only_groups,
-        args.use_only_tags, not args.silent, args.keep_filename, args.use_local_time)
+        args.use_only_tags, not args.silent, args.keep_filename, args.use_local_time, args.if_condition)
 
 if __name__ == '__main__':
     main()
