@@ -343,18 +343,29 @@ def sortPhotos(src_dir, dest_dir, sort_format, rename_format, recursive=False,
             sys.stdout.write('[%-20s] %d of %d ' % ('='*numdots, idx+1, num_files))
             sys.stdout.flush()
 
+        # ignore files and folders starting with '.', '@' or '#'
+        if (src_file.startswith('.') and not src_file.startswith('./')) or ((os.path.sep + '.') in src_file):
+            if verbose:
+                print('Skipping file due to special meaning of "." in path.')
+                print()
+            continue
+        if src_file.startswith('@') or ((os.path.sep + '@') in src_file):
+            if verbose:
+                print('Skipping file due to special meaning of "@" in path.')
+                print()
+            continue
+        if src_file.startswith('#') or ((os.path.sep + '#') in src_file):
+            if verbose:
+                print('Skipping file due to special meaning of "#" in path.')
+                print()
+            continue
+
         # check if no valid date found
         if not date:
             if verbose:
                 print('No valid dates were found using the specified tags. File will remain where it is.')
                 print()
                 # sys.stdout.flush()
-            continue
-
-        # ignore hidden files
-        if os.path.basename(src_file).startswith('.'):
-            print('File is hidden and will be skipped.')
-            print()
             continue
 
         if verbose:
