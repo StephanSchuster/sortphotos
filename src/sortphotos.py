@@ -276,7 +276,11 @@ def sortPhotos(src_dir, dest_dir, sort_format, rename_format, recursive=False,
 
     # some error checking
     if not os.path.exists(src_dir):
-        raise Exception('Source directory does not exist')
+        print('Source directory does not exist')
+        exit()
+    if not os.path.isdir(src_dir):
+        print('Source path is not a directory')
+        exit()
 
     # setup arguments to exiftool
     args = ['-j', '-a', '-G']
