@@ -114,7 +114,6 @@ def parse_date_exif(date_string, use_local_time):
     return date
 
 
-
 def get_oldest_timestamp(data, additional_groups_to_ignore, additional_tags_to_ignore, use_local_time, print_all_tags=False):
     """data as dictionary from json.  Should contain only time stamps except SourceFile"""
 
@@ -129,7 +128,6 @@ def get_oldest_timestamp(data, additional_groups_to_ignore, additional_tags_to_i
     # ssetup tags to ignore
     ignore_groups = ['ICC_Profile'] + additional_groups_to_ignore
     ignore_tags = ['SourceFile', 'XMP:HistoryWhen'] + additional_tags_to_ignore
-
 
     if print_all_tags:
         print('All relevant tags:')
@@ -169,7 +167,6 @@ def get_oldest_timestamp(data, additional_groups_to_ignore, additional_tags_to_i
         print()
 
     return src_file, oldest_date, oldest_keys
-
 
 
 def check_for_early_morning_photos(date, day_begins):
@@ -222,7 +219,6 @@ class ExifTool(object):
 
 
 # ---------------------------------------
-
 
 
 def sortPhotos(src_dir, dest_dir, sort_format, rename_format, recursive=False,
@@ -305,12 +301,10 @@ def sortPhotos(src_dir, dest_dir, sort_format, rename_format, recursive=False,
     else:
         args += ['-time:all']
 
-
     if recursive:
         args += ['-r']
 
     args += [src_dir]
-
 
     # get all metadata
     with ExifTool() as e:
@@ -394,7 +388,6 @@ def sortPhotos(src_dir, dest_dir, sort_format, rename_format, recursive=False,
         # early morning photos can be grouped with previous day (depending on user setting)
         date = check_for_early_morning_photos(date, day_begins)
 
-
         # create folder structure
         dir_structure = date.strftime(sort_format)
         dirs = dir_structure.split('/')
@@ -420,7 +413,6 @@ def sortPhotos(src_dir, dest_dir, sort_format, rename_format, recursive=False,
 
         if verbose:
             print('Destination: ' + dest_file)
-
 
         # check for collisions
         append = 1
@@ -453,7 +445,6 @@ def sortPhotos(src_dir, dest_dir, sort_format, rename_format, recursive=False,
 
             else:
                 break
-
 
         if test:
             test_file_dict[dest_file] = src_file
@@ -544,6 +535,7 @@ def main():
         args.copy, args.test, not args.keep_duplicates, args.day_begins,
         args.ignore_groups, args.ignore_tags, args.use_only_groups,
         args.use_only_tags, not args.silent, args.keep_filename, args.use_local_time, args.if_condition)
+
 
 if __name__ == '__main__':
     main()
