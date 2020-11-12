@@ -188,9 +188,8 @@ class ExifTool(object):
 
     sentinel = "{ready}"
 
-    def __init__(self, executable=exiftool_location, verbose=False):
+    def __init__(self, executable=exiftool_location):
         self.executable = executable
-        self.verbose = verbose
 
     def __enter__(self):
         self.process = subprocess.Popen(
@@ -210,8 +209,6 @@ class ExifTool(object):
         fd = self.process.stdout.fileno()
         while not output.rstrip(' \t\n\r').endswith(self.sentinel):
             increment = os.read(fd, 4096)
-            if self.verbose:
-                sys.stdout.write(increment.decode('utf-8'))
             output += increment.decode('utf-8')
         return output.rstrip(' \t\n\r')[:-len(self.sentinel)]
 
@@ -316,15 +313,32 @@ def sortPhotos(src_dir, dest_dir, sort_format, rename_format, recursive=False,
 
 
     # get all metadata
-    with ExifTool(verbose=verbose) as e:
+    with ExifTool() as e:
         print('Preprocessing with ExifTool ...')
         sys.stdout.flush()
         metadata = e.get_metadata(*args)
-
-    # setup output to screen
-    num_files = len(metadata)
+    
+    if verbose:
+        print()
+        print('JSON result of image files read:')
+        print(json.dumps(metadata, indent=2))
+    
     print()
+    print('Final processing with Python ...')
 
+    num_files = len(metadata)
+    num_ignored = 0
+    num_duplicates = 0
+    num_processed = 0
+    processed = []
+
+    if test:
+        mode = 'TEST'
+    elif copy_files:
+        mode = 'COPY'
+    else:
+        mode = 'MOVE'
+    
     if test:
         test_file_dict = {}
 
@@ -339,46 +353,43 @@ def sortPhotos(src_dir, dest_dir, sort_format, rename_format, recursive=False,
 
         if verbose:
         # write out which photo we are at
-            ending = ']'
-            if test:
-                ending = '] TEST --> No files are being moved/copied'
-            print('[' + str(idx+1) + '/' + str(num_files) + ending)
+            print()
+            print('[' + str(idx+1) + '/' + str(num_files) + '] ' + mode)
             print('Source: ' + src_file)
         else:
             # progress bar
             numdots = int(20.0*(idx+1)/num_files)
             sys.stdout.write('\r')
-            sys.stdout.write('[%-20s] %d of %d ' % ('='*numdots, idx+1, num_files))
+            sys.stdout.write('[%-20s] %d / %d ' % ('='*numdots, idx+1, num_files))
             sys.stdout.flush()
 
         # ignore files and folders starting with '.', '@' or '#'
         if (src_file.startswith('.') and not src_file.startswith('./')) or ((os.path.sep + '.') in src_file):
             if verbose:
-                print('Skipping file due to special meaning of "." in path.')
-                print()
+                print('Ignoring file due to special meaning of "." in path.')
+            num_ignored += 1
             continue
         if src_file.startswith('@') or ((os.path.sep + '@') in src_file):
             if verbose:
-                print('Skipping file due to special meaning of "@" in path.')
-                print()
+                print('Ignoring file due to special meaning of "@" in path.')
+            num_ignored += 1
             continue
         if src_file.startswith('#') or ((os.path.sep + '#') in src_file):
             if verbose:
-                print('Skipping file due to special meaning of "#" in path.')
-                print()
+                print('Ignoring file due to special meaning of "#" in path.')
+            num_ignored += 1
             continue
 
         # check if no valid date found
         if not date:
             if verbose:
-                print('No valid dates were found using the specified tags. File will remain where it is.')
-                print()
+                print('Ignoring file without valid dates in specified tags.')
                 # sys.stdout.flush()
+            num_ignored += 1
             continue
 
         if verbose:
-            print('Date/Time: ' + str(date))
-            print('Corresponding Tags: ' + ', '.join(keys))
+            print('Date Time (Tag): ' + str(date) + ' (' + ', '.join(keys) + ')')
 
         # early morning photos can be grouped with previous day (depending on user setting)
         date = check_for_early_morning_photos(date, day_begins)
@@ -408,12 +419,7 @@ def sortPhotos(src_dir, dest_dir, sort_format, rename_format, recursive=False,
         root, ext = os.path.splitext(dest_file)
 
         if verbose:
-            name = 'Destination '
-            if copy_files:
-                name += '(copy): '
-            else:
-                name += '(move): '
-            print(name + dest_file)
+            print('Destination: ' + dest_file)
 
 
         # check for collisions
@@ -430,7 +436,7 @@ def sortPhotos(src_dir, dest_dir, sort_format, rename_format, recursive=False,
                 if remove_duplicates and filecmp.cmp(src_file, dest_compare):  # check for identical files
                     fileIsIdentical = True
                     if verbose:
-                        print('Identical file already exists. Duplicate will be ignored.')
+                        print('Identical file with same name already exists in destination.')
                     break
 
                 else:  # name is same, but file is different
@@ -441,7 +447,8 @@ def sortPhotos(src_dir, dest_dir, sort_format, rename_format, recursive=False,
                         dest_file = root + '_' + str(append) + ext
                     append += 1
                     if verbose:
-                        print('Same name already exists. Renaming file to: ' + dest_file)
+                        print('Different file with same name already exists in destination.')
+                        print('Renaming to: ' + dest_file)
 
             else:
                 break
@@ -454,25 +461,26 @@ def sortPhotos(src_dir, dest_dir, sort_format, rename_format, recursive=False,
         else:
 
             if fileIsIdentical:
+                num_duplicates += 1
                 if copy_files:
                     continue  # ignore identical files
                 else:
                     os.remove(src_file)
             else:
+                num_processed += 1
+                processed.append((src_file, dest_file))
                 if copy_files:
                     shutil.copy2(src_file, dest_file)
                 else:
                     shutil.move(src_file, dest_file)
 
-
-
-        if verbose:
-            print()
-            # sys.stdout.flush()
-
-
-    if not verbose:
-        print()
+    print()
+    print(str(num_ignored).rjust(5) + " image files ignored")
+    print(str(num_duplicates).rjust(5) + " duplicates skipped")
+    print(str(num_processed).rjust(5) + " images processed")
+    print()
+    for src, dst in processed:
+        print(mode + ": " + src + " --> " + dst)
 
 
 def main():
