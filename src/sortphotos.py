@@ -427,12 +427,13 @@ def sortPhotos(src_dir, dest_dir, sort_format, rename_format, recursive=False,
         fileIsIdentical = False
 
         while True:
-
-            if (not test and os.path.isfile(dest_file)) or (test and dest_file in test_file_dict.keys()):  # check for existing name
-                if test:
-                    dest_compare = test_file_dict[dest_file]
-                else:
+            fileExists = os.path.isfile(dest_file)
+            if (fileExists or (test and dest_file in test_file_dict.keys())):  # check for existing name
+                if fileExists:
                     dest_compare = dest_file
+                else:
+                    dest_compare = test_file_dict[dest_file]
+
                 if remove_duplicates and filecmp.cmp(src_file, dest_compare):  # check for identical files
                     fileIsIdentical = True
                     if verbose:
@@ -454,21 +455,21 @@ def sortPhotos(src_dir, dest_dir, sort_format, rename_format, recursive=False,
                 break
 
 
-        # finally move or copy the file
         if test:
             test_file_dict[dest_file] = src_file
 
-        else:
-
-            if fileIsIdentical:
-                num_duplicates += 1
+        # finally move or copy the file
+        if fileIsIdentical:
+            num_duplicates += 1
+            if not test:
                 if copy_files:
                     continue  # ignore identical files
                 else:
                     os.remove(src_file)
-            else:
-                num_processed += 1
-                processed.append((src_file, dest_file))
+        else:
+            num_processed += 1
+            processed.append((src_file, dest_file))
+            if not test:
                 if copy_files:
                     shutil.copy2(src_file, dest_file)
                 else:
