@@ -459,8 +459,12 @@ def sortPhotos(src_dir, dest_dir, sort_format, rename_format, recursive=False,
     print(str(num_duplicates).rjust(5) + ' duplicates skipped')
     print(str(num_processed).rjust(5) + ' images processed')
     print()
-    for src, dst in processed:
-        print(mode + ": " + src + " --> " + dst)
+
+    if num_processed > 0:
+        for src, dst in processed:
+            print(mode + ': ' + src + ' --> ' + dst)
+    else:
+        print('No files ' + ('copied' if copy_files else 'moved') + ' to destination')
 
 
 def main():
