@@ -25,7 +25,7 @@ import locale
 
 # fixing / workarounding issue #120
 reload(sys)
-sys.setdefaultencoding("utf-8")
+sys.setdefaultencoding('utf-8')
 
 # setting locale to the 'local' value
 locale.setlocale(locale.LC_ALL, '')
@@ -183,14 +183,14 @@ def check_for_early_morning_photos(date, day_begins):
 class ExifTool(object):
     """used to run ExifTool from Python and keep it open"""
 
-    sentinel = "{ready}"
+    sentinel = '{ready}'
 
     def __init__(self, executable=exiftool_location):
         self.executable = executable
 
     def __enter__(self):
         self.process = subprocess.Popen(
-            ['perl', self.executable, "-stay_open", "True",  "-@", "-"],
+            ['perl', self.executable, '-stay_open', 'True',  '-@', '-'],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE)
         return self
 
@@ -199,10 +199,10 @@ class ExifTool(object):
         self.process.stdin.flush()
 
     def execute(self, *args):
-        args = args + ("-execute\n",)
-        self.process.stdin.write(str.join("\n", args).encode('utf-8'))
+        args = args + ('-execute\n',)
+        self.process.stdin.write(str.join('\n', args).encode('utf-8'))
         self.process.stdin.flush()
-        output = ""
+        output = ''
         fd = self.process.stdout.fileno()
         while not output.rstrip(' \t\n\r').endswith(self.sentinel):
             increment = os.read(fd, 4096)
@@ -455,9 +455,9 @@ def sortPhotos(src_dir, dest_dir, sort_format, rename_format, recursive=False,
                     shutil.move(src_file, dest_file)
 
     print()
-    print(str(num_ignored).rjust(5) + " image files ignored")
-    print(str(num_duplicates).rjust(5) + " duplicates skipped")
-    print(str(num_processed).rjust(5) + " images processed")
+    print(str(num_ignored).rjust(5) + ' image files ignored')
+    print(str(num_duplicates).rjust(5) + ' duplicates skipped')
+    print(str(num_processed).rjust(5) + ' images processed')
     print()
     for src, dst in processed:
         print(mode + ": " + src + " --> " + dst)
@@ -476,14 +476,14 @@ def main():
     parser.add_argument('-s', '--silent', action='store_true', help='reduce output to minimum')
     parser.add_argument('-t', '--test', action='store_true', help='dry run without actual changes')
     parser.add_argument('--sort', type=str, default='%Y/%m-%b',
-                        help="choose destination folder structure using datetime format \n\
+                        help='choose destination folder structure using datetime format \n\
     * https://docs.python.org/2/library/datetime.html#strftime-and-strptime-behavior \n\
     * use forward slashes to indicate subdirectoryies (independent of OS convention) \n\
-    * the default is '%%Y/%%m-%%b' (e.g. 2012/02-Feb)")
+    * the default is "%%Y/%%m-%%b" (e.g. 2012/02-Feb)')
     parser.add_argument('--rename', type=str, default=None,
-                        help="rename file using format codes \n\
+                        help='rename file using format codes \n\
     * https://docs.python.org/2/library/datetime.html#strftime-and-strptime-behavior \n\
-    * the default is None which just uses the original filename")
+    * the default is None which just uses the original filename')
     parser.add_argument('--keep-duplicates', action='store_true', default=False,
                         help='if file is a duplicate keep it anyway (after renaming)')
     parser.add_argument('--day-begins', type=int, default=0,
@@ -493,7 +493,7 @@ def main():
     parser.add_argument('--ignore-groups', type=str, nargs='+', default=[],
                         help='a list of tag groups that will be ignored for date informations \n\
     * list of groups/tags: http://www.sno.phy.queensu.ca/~phil/exiftool/TagNames/ \n\
-    * by default the group \'File\' is ignored which contains file timestamp data')
+    * by default the group "File" is ignored which contains file timestamp data')
     parser.add_argument('--ignore-tags', type=str, nargs='+', default=[],
                         help='a list of tags that will be ignored for date informations \n\
     * list of groups/tags: http://www.sno.phy.queensu.ca/~phil/exiftool/TagNames/ \n\
