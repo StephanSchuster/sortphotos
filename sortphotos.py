@@ -3,8 +3,13 @@
 """
 Organizes photos and videos into folders using date/time
 
-Created on 3/2/2013
+Created on 2013/02/03
 Copyright (c) S. Andrew Ning. All rights reserved.
+Original: https://github.com/andrewning/sortphotos
+
+Updated on 2020/12/28
+Copyright (c) Stephan Schuster. All rights reserved.
+Fork: https://github.com/StephanSchuster/sortphotos
 
 """
 
@@ -14,14 +19,15 @@ import subprocess
 import os
 import sys
 import shutil
+import filecmp
+import re
+import locale
+from datetime import datetime, timedelta
 try:
     import json
 except:
     import simplejson as json
-import filecmp
-from datetime import datetime, timedelta
-import re
-import locale
+
 
 # fixing / workarounding issue #120
 reload(sys)
@@ -30,7 +36,7 @@ sys.setdefaultencoding('utf-8')
 # setting locale to the 'local' value
 locale.setlocale(locale.LC_ALL, '')
 
-exiftool_location = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'Image-ExifTool', 'exiftool')
+exiftool_location = os.path.expanduser('~/scripts/exiftool/exiftool')
 
 
 # -------- convenience methods ----------
@@ -38,11 +44,12 @@ exiftool_location = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'I
 
 def parse_date_exif(date_string, use_local_time):
     """
-    extract date info from EXIF data
+    Extract date info from EXIF data
+
     YYYY:MM:DD HH:MM:SS
-    or YYYY:MM:DD HH:MM:SS+HH:MM
-    or YYYY:MM:DD HH:MM:SS-HH:MM
-    or YYYY:MM:DD HH:MM:SSZ
+    YYYY:MM:DD HH:MM:SS+HH:MM
+    YYYY:MM:DD HH:MM:SS-HH:MM
+    YYYY:MM:DD HH:MM:SSZ
     """
 
     # split into date and time
@@ -69,7 +76,8 @@ def parse_date_exif(date_string, use_local_time):
     second = 0
 
     if len(elements) > 1:
-        time_entries = re.split('(\+|-|Z)', elements[1])  # ['HH:MM:SS', '+', 'HH:MM']
+        # ['HH:MM:SS', '+', 'HH:MM']
+        time_entries = re.split('(\+|-|Z)', elements[1])
         time = time_entries[0].split(':')  # ['HH', 'MM', 'SS']
 
         if len(time) == 3:
@@ -92,7 +100,8 @@ def parse_date_exif(date_string, use_local_time):
                 if time_entries[1] == '+':
                     time_zone_hour *= -1
 
-                dateadd = timedelta(hours=time_zone_hour, minutes=time_zone_min)
+                dateadd = timedelta(hours=time_zone_hour,
+                                    minutes=time_zone_min)
                 time_zone_adjust = True
 
     # form date object
@@ -103,7 +112,8 @@ def parse_date_exif(date_string, use_local_time):
 
     # try converting it (some "valid" dates are way before 1900 and cannot be parsed by strtime later)
     try:
-        date.strftime('%Y/%m-%b')  # any format with year, month, day, would work here.
+        # any format with year, month, day, would work here.
+        date.strftime('%Y/%m-%b')
     except ValueError:
         return None  # errors in time format
 
@@ -115,7 +125,9 @@ def parse_date_exif(date_string, use_local_time):
 
 
 def get_oldest_timestamp(data, additional_groups_to_ignore, additional_tags_to_ignore, use_local_time, print_all_tags=False):
-    """data as dictionary from JSON should contain only time stamps except SourceFile"""
+    """
+    Calculate oldest date and related keys
+    """
 
     # save only the oldest date
     date_available = False
@@ -148,7 +160,8 @@ def get_oldest_timestamp(data, additional_groups_to_ignore, additional_tags_to_i
                 date = date[0]
 
             try:
-                exifdate = parse_date_exif(date, use_local_time)  # check for poor-formed exif data, but allow continuation
+                # check for poor-formed exif data, but allow continuation
+                exifdate = parse_date_exif(date, use_local_time)
             except Exception as e:
                 exifdate = None
 
@@ -169,9 +182,12 @@ def get_oldest_timestamp(data, additional_groups_to_ignore, additional_tags_to_i
     return src_file, oldest_date, oldest_keys
 
 
-#  this class is based on code from Sven Marnach (http://stackoverflow.com/questions/10075115/call-exiftool-from-a-python-script)
 class ExifTool(object):
-    """used to run ExifTool from Python and keep it open"""
+    """
+    Run ExifTool from Python and keep it open
+
+    http://stackoverflow.com/questions/10075115/call-exiftool-from-a-python-script
+    """
 
     sentinel = '{ready}'
 
@@ -210,49 +226,13 @@ class ExifTool(object):
 # ---------------------------------------
 
 
-def sortPhotos(src_dir, dest_dir, sort_format, rename_format, recursive=False,
-        copy_files=False, test=False, remove_duplicates=True,
-        additional_groups_to_ignore=['File'], additional_tags_to_ignore=[],
-        use_only_groups=None, use_only_tags=None, verbose=True,
-        use_local_time=False, if_condition=None):
+def sortPhotos(src_dir, dest_dir, sort_format, rename_format,
+               recursive=False, copy_files=False, verbose=True, test=False, remove_duplicates=True,
+               additional_groups_to_ignore=['File'], additional_tags_to_ignore=[],
+               use_only_groups=None, use_only_tags=None,
+               use_local_time=False, if_condition=None):
     """
-    This function is a convenience wrapper around ExifTool based on common usage scenarios for sortphotos.py.
-
-    Parameters
-    ---------------
-    src_dir : str
-        Directory containing files you want to process
-    dest_dir : str
-        Directory where you want to move/copy the files to
-    sort_format : str
-        Date format code for how you want your photos sorted
-        (https://docs.python.org/2/library/datetime.html#strftime-and-strptime-behavior)
-    rename_format : str
-        Date format code for how you want your files renamed
-        (https://docs.python.org/2/library/datetime.html#strftime-and-strptime-behavior)
-        None to not rename file
-    recursive : bool
-        True if you want src_dir to be searched recursively for files (False to search only in top-level of src_dir)
-    copy_files : bool
-        True if you want files to be copied over from src_dir to dest_dir rather than being moved
-    test : bool
-        True if you just want to simulate how the files will be moved without actually doing any moving/copying
-    remove_duplicates : bool
-        True to remove files that are exactly the same in name and a file hash
-    additional_groups_to_ignore : list(str)
-        Tag groups that will be ignored when searching for file data. By default File is ignored.
-    additional_tags_to_ignore : list(str)
-        Specific tags that will be ignored when searching for file data
-    use_only_groups : list(str)
-        A list of groups that will be exclusived searched across for date info
-    use_only_tags : list(str)
-        A list of tags that will be exclusived searched across for date info
-    verbose : bool
-        True if you want to see details of file processing
-    use_local_time : bool
-        True to disable time zone adjustements and use local time instead of UTC time
-    if_condition : str
-        A condition clause which is passed to ExifTool in order to filter files that get processed
+    Convenience wrapper around ExifTool based on common usage scenarios
     """
 
     # some error checking
@@ -293,12 +273,12 @@ def sortPhotos(src_dir, dest_dir, sort_format, rename_format, recursive=False,
         print('Preprocessing with ExifTool ...')
         sys.stdout.flush()
         metadata = e.get_metadata(*args)
-    
+
     if verbose:
         print()
         print('JSON result of image files read:')
         print(json.dumps(metadata, indent=2))
-    
+
     print()
     print('Final processing with Python ...')
 
@@ -314,7 +294,7 @@ def sortPhotos(src_dir, dest_dir, sort_format, rename_format, recursive=False,
         mode = 'COPY'
     else:
         mode = 'MOVE'
-    
+
     if test:
         test_file_dict = {}
 
@@ -322,7 +302,8 @@ def sortPhotos(src_dir, dest_dir, sort_format, rename_format, recursive=False,
     for idx, data in enumerate(metadata):
 
         # extract timestamp date for photo
-        src_file, date, keys = get_oldest_timestamp(data, additional_groups_to_ignore, additional_tags_to_ignore, use_local_time)
+        src_file, date, keys = get_oldest_timestamp(
+            data, additional_groups_to_ignore, additional_tags_to_ignore, use_local_time)
 
         # fixes further errors when using unicode characters like "\u20AC"
         src_file.encode('utf-8')
@@ -336,7 +317,8 @@ def sortPhotos(src_dir, dest_dir, sort_format, rename_format, recursive=False,
             # progress bar
             numdots = int(20.0*(idx+1)/num_files)
             sys.stdout.write('\r')
-            sys.stdout.write('[%-20s] %d / %d ' % ('='*numdots, idx+1, num_files))
+            sys.stdout.write('[%-20s] %d / %d ' %
+                             ('='*numdots, idx+1, num_files))
             sys.stdout.flush()
 
         # ignore files and folders starting with '.', '@' or '#'
@@ -364,7 +346,8 @@ def sortPhotos(src_dir, dest_dir, sort_format, rename_format, recursive=False,
             continue
 
         if verbose:
-            print('Date Time (Tag): ' + str(date) + ' (' + ', '.join(keys) + ')')
+            print('Date Time (Tag): ' + str(date) +
+                  ' (' + ', '.join(keys) + ')')
 
         # create folder structure
         dir_structure = date.strftime(sort_format)
@@ -404,16 +387,19 @@ def sortPhotos(src_dir, dest_dir, sort_format, rename_format, recursive=False,
                 else:
                     dest_compare = test_file_dict[dest_file]
 
-                if remove_duplicates and filecmp.cmp(src_file, dest_compare):  # check for identical files
+                # check for identical files
+                if remove_duplicates and filecmp.cmp(src_file, dest_compare):
                     fileIsIdentical = True
                     if verbose:
-                        print('Identical file with same name already exists in destination.')
+                        print(
+                            'Identical file with same name already exists in destination.')
                     break
                 else:  # name is same, but file is different
                     dest_file = root + '_' + str(append) + ext
                     append += 1
                     if verbose:
-                        print('Different file with same name already exists in destination.')
+                        print(
+                            'Different file with same name already exists in destination.')
                         print('Renaming to: ' + dest_file)
             else:
                 break
@@ -456,13 +442,17 @@ def main():
 
     # setup command line parsing
     parser = argparse.ArgumentParser(formatter_class=argparse.RawTextHelpFormatter,
-                                     description='Sort files (primarily photos and videos) into folders by date/time using EXIF and other metadata.')
+                                     description='Organizes photos and videos into folders using date/time')
     parser.add_argument('src_dir', type=str, help='source directory')
     parser.add_argument('dest_dir', type=str, help='destination directory')
-    parser.add_argument('-r', '--recursive', action='store_true', help='search src_dir recursively')
-    parser.add_argument('-c', '--copy', action='store_true', help='copy files instead of move')
-    parser.add_argument('-s', '--silent', action='store_true', help='reduce output to minimum')
-    parser.add_argument('-t', '--test', action='store_true', help='dry run without actual changes')
+    parser.add_argument('-r', '--recursive', action='store_true',
+                        help='search src_dir recursively')
+    parser.add_argument('-c', '--copy', action='store_true',
+                        help='copy files instead of move')
+    parser.add_argument('-s', '--silent', action='store_true',
+                        help='reduce output to minimum')
+    parser.add_argument('-t', '--test', action='store_true',
+                        help='dry run without actual changes')
     parser.add_argument('--sort', type=str, default='%Y/%m-%b',
                         help='choose destination folder structure using datetime format \n\
     * https://docs.python.org/2/library/datetime.html#strftime-and-strptime-behavior \n\
@@ -494,10 +484,11 @@ def main():
     # parse command line arguments
     args = parser.parse_args()
 
-    sortPhotos(args.src_dir, args.dest_dir, args.sort, args.rename, args.recursive,
-        args.copy, args.test, not args.keep_duplicates,
-        args.ignore_groups, args.ignore_tags, args.use_only_groups,
-        args.use_only_tags, not args.silent, args.use_local_time, args.if_condition)
+    sortPhotos(args.src_dir, args.dest_dir, args.sort, args.rename,
+               args.recursive, args.copy, not args.silent, args.test, not args.keep_duplicates,
+               args.ignore_groups, args.ignore_tags,
+               args.use_only_groups, args.use_only_tags,
+               args.use_local_time, args.if_condition)
 
 
 if __name__ == '__main__':
