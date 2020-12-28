@@ -9,7 +9,7 @@ Original: https://github.com/andrewning/sortphotos
 
 Updated on 2020/12/28
 Copyright (c) Stephan Schuster. All rights reserved.
-Fork: https://github.com/StephanSchuster/sortphotos
+Fork: https://github.com/StephanSchuster/sortmedia
 
 """
 
@@ -226,11 +226,11 @@ class ExifTool(object):
 # ---------------------------------------
 
 
-def sortPhotos(src_dir, dest_dir, sort_format, rename_format,
-               recursive=False, copy_files=False, verbose=True, test=False, remove_duplicates=True,
-               additional_groups_to_ignore=['File'], additional_tags_to_ignore=[],
-               use_only_groups=None, use_only_tags=None,
-               use_local_time=False, if_condition=None):
+def sort(src_dir, dest_dir, sort_format, rename_format,
+         recursive=False, copy_files=False, verbose=True, test=False, remove_duplicates=True,
+         additional_groups_to_ignore=['File'], additional_tags_to_ignore=[],
+         use_only_groups=None, use_only_tags=None,
+         use_local_time=False, if_condition=None):
     """
     Convenience wrapper around ExifTool based on common usage scenarios
     """
@@ -484,11 +484,11 @@ def main():
     # parse command line arguments
     args = parser.parse_args()
 
-    sortPhotos(args.src_dir, args.dest_dir, args.sort, args.rename,
-               args.recursive, args.copy, not args.silent, args.test, not args.keep_duplicates,
-               args.ignore_groups, args.ignore_tags,
-               args.use_only_groups, args.use_only_tags,
-               args.use_local_time, args.if_condition)
+    sort(args.src_dir, args.dest_dir, args.sort, args.rename,
+         args.recursive, args.copy, not args.silent, args.test, not args.keep_duplicates,
+         args.ignore_groups, args.ignore_tags,
+         args.use_only_groups, args.use_only_tags,
+         args.use_local_time, args.if_condition)
 
 
 if __name__ == '__main__':
