@@ -169,16 +169,6 @@ def get_oldest_timestamp(data, additional_groups_to_ignore, additional_tags_to_i
     return src_file, oldest_date, oldest_keys
 
 
-def check_for_early_morning_photos(date, day_begins):
-    """check for early hour photos to be grouped with previous day"""
-
-    if date.hour < day_begins:
-        print('Moving this photo to the previous day for classification purposes (day_begins=' + str(day_begins) + ').')
-        date = date - timedelta(hours=date.hour+1)  # push it to the day before for classificiation purposes
-
-    return date
-
-
 #  this class is based on code from Sven Marnach (http://stackoverflow.com/questions/10075115/call-exiftool-from-a-python-script)
 class ExifTool(object):
     """used to run ExifTool from Python and keep it open"""
@@ -221,7 +211,7 @@ class ExifTool(object):
 
 
 def sortPhotos(src_dir, dest_dir, sort_format, rename_format, recursive=False,
-        copy_files=False, test=False, remove_duplicates=True, day_begins=0,
+        copy_files=False, test=False, remove_duplicates=True,
         additional_groups_to_ignore=['File'], additional_tags_to_ignore=[],
         use_only_groups=None, use_only_tags=None, verbose=True,
         use_local_time=False, if_condition=None):
@@ -249,9 +239,6 @@ def sortPhotos(src_dir, dest_dir, sort_format, rename_format, recursive=False,
         True if you just want to simulate how the files will be moved without actually doing any moving/copying
     remove_duplicates : bool
         True to remove files that are exactly the same in name and a file hash
-    day_begins : int
-        What hour of the day you want the day to begin (only for classification purposes). Defaults at 0 as midnight.
-        Can be used to group early morning photos with the previous day. Must be a number between 0-23.
     additional_groups_to_ignore : list(str)
         Tag groups that will be ignored when searching for file data. By default File is ignored.
     additional_tags_to_ignore : list(str)
@@ -379,9 +366,6 @@ def sortPhotos(src_dir, dest_dir, sort_format, rename_format, recursive=False,
         if verbose:
             print('Date Time (Tag): ' + str(date) + ' (' + ', '.join(keys) + ')')
 
-        # early morning photos can be grouped with previous day (depending on user setting)
-        date = check_for_early_morning_photos(date, day_begins)
-
         # create folder structure
         dir_structure = date.strftime(sort_format)
         dirs = dir_structure.split('/')
@@ -490,10 +474,6 @@ def main():
     * the default is None which just uses the original filename')
     parser.add_argument('--keep-duplicates', action='store_true', default=False,
                         help='if file is a duplicate keep it anyway (after renaming)')
-    parser.add_argument('--day-begins', type=int, default=0,
-                        help='hour of day where new day begins (0-23) \n\
-    * defaults to 0 which corresponds to midnight \n\
-    * useful for grouping pictures with previous day')
     parser.add_argument('--ignore-groups', type=str, nargs='+', default=[],
                         help='a list of tag groups that will be ignored for date informations \n\
     * list of groups/tags: http://www.sno.phy.queensu.ca/~phil/exiftool/TagNames/ \n\
@@ -515,7 +495,7 @@ def main():
     args = parser.parse_args()
 
     sortPhotos(args.src_dir, args.dest_dir, args.sort, args.rename, args.recursive,
-        args.copy, args.test, not args.keep_duplicates, args.day_begins,
+        args.copy, args.test, not args.keep_duplicates,
         args.ignore_groups, args.ignore_tags, args.use_only_groups,
         args.use_only_tags, not args.silent, args.use_local_time, args.if_condition)
 
