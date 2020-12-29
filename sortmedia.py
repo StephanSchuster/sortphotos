@@ -42,7 +42,7 @@ exiftool_location = os.path.expanduser('~/scripts/exiftool/exiftool')
 # -------- convenience methods ----------
 
 
-def parse_date_exif(date_string, use_local_time):
+def parse_exif_date(date_string, use_local_time):
     """
     Extract date info from EXIF data
 
@@ -124,7 +124,7 @@ def parse_date_exif(date_string, use_local_time):
     return date
 
 
-def get_oldest_timestamp(data, additional_groups_to_ignore, additional_tags_to_ignore, use_local_time, print_all_tags=False):
+def get_oldest_date(data, ignore_groups, ignore_tags, use_local_time, print_all_tags=False):
     """
     Calculate oldest date and related keys
     """
@@ -138,8 +138,8 @@ def get_oldest_timestamp(data, additional_groups_to_ignore, additional_tags_to_i
     src_file = data['SourceFile']
 
     # setup tags to ignore
-    ignore_groups = ['ICC_Profile'] + additional_groups_to_ignore
-    ignore_tags = ['SourceFile', 'XMP:HistoryWhen'] + additional_tags_to_ignore
+    groups_to_ignore = ['ICC_Profile'] + ignore_groups
+    tags_to_ignore = ['SourceFile', 'XMP:HistoryWhen'] + ignore_tags
 
     if print_all_tags:
         print('All relevant tags:')
@@ -148,7 +148,7 @@ def get_oldest_timestamp(data, additional_groups_to_ignore, additional_tags_to_i
     for key in data.keys():
 
         # check if this key needs to be ignored, or is in the set of tags that must be used
-        if (key not in ignore_tags) and (key.split(':')[0] not in ignore_groups) and 'GPS' not in key:
+        if (key not in tags_to_ignore) and (key.split(':')[0] not in groups_to_ignore) and 'GPS' not in key:
 
             date = data[key]
 
@@ -161,7 +161,7 @@ def get_oldest_timestamp(data, additional_groups_to_ignore, additional_tags_to_i
 
             try:
                 # check for poor-formed exif data, but allow continuation
-                exifdate = parse_date_exif(date, use_local_time)
+                exifdate = parse_exif_date(date, use_local_time)
             except Exception as e:
                 exifdate = None
 
@@ -227,10 +227,9 @@ class ExifTool(object):
 
 
 def sort(src_dir, dest_dir, sort_format, rename_format,
-               recursive=False, copy_files=False, verbose=True, test=False, remove_duplicates=True,
-               additional_groups_to_ignore=['File'], additional_tags_to_ignore=[],
-               use_only_groups=None, use_only_tags=None,
-               use_local_time=False, if_condition=None):
+         recursive=False, copy_files=False, verbose=True, test=False, remove_duplicates=True,
+         ignore_groups=['File'], ignore_tags=[], use_only_groups=None, use_only_tags=None,
+         use_local_time=False, if_condition=None):
     """
     Convenience wrapper around ExifTool based on common usage scenarios
     """
@@ -252,12 +251,12 @@ def sort(src_dir, dest_dir, sort_format, rename_format,
 
     # setup tags to ignore
     if use_only_tags is not None:
-        additional_groups_to_ignore = []
-        additional_tags_to_ignore = []
+        ignore_groups = []
+        ignore_tags = []
         for t in use_only_tags:
             args += ['-' + t]
     elif use_only_groups is not None:
-        additional_groups_to_ignore = []
+        ignore_groups = []
         for g in use_only_groups:
             args += ['-' + g + ':Time:All']
     else:
@@ -301,9 +300,9 @@ def sort(src_dir, dest_dir, sort_format, rename_format,
     # parse output extracting oldest relevant date
     for idx, data in enumerate(metadata):
 
-        # extract timestamp date for photo
-        src_file, date, keys = get_oldest_timestamp(
-            data, additional_groups_to_ignore, additional_tags_to_ignore, use_local_time)
+        # extract oldest date for photo
+        src_file, date, keys = get_oldest_date(
+            data, ignore_groups, ignore_tags, use_local_time)
 
         # fixes further errors when using unicode characters like "\u20AC"
         src_file.encode('utf-8')
@@ -485,10 +484,9 @@ def main():
     args = parser.parse_args()
 
     sort(args.src_dir, args.dest_dir, args.sort, args.rename,
-               args.recursive, args.copy, not args.silent, args.test, not args.keep_duplicates,
-               args.ignore_groups, args.ignore_tags,
-               args.use_only_groups, args.use_only_tags,
-               args.use_local_time, args.if_condition)
+         args.recursive, args.copy, not args.silent, args.test, not args.keep_duplicates,
+         args.ignore_groups, args.ignore_tags, args.use_only_groups, args.use_only_tags,
+         args.use_local_time, args.if_condition)
 
 
 if __name__ == '__main__':
