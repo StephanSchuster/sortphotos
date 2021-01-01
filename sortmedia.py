@@ -7,79 +7,100 @@ Created on 2013/02/03
 Copyright (c) S. Andrew Ning. All rights reserved.
 Original: https://github.com/andrewning/sortphotos
 
-Updated on 2020/12/28
+Rewrite on 2021/01/01
 Copyright (c) Stephan Schuster. All rights reserved.
 Fork: https://github.com/StephanSchuster/sortmedia
 
 """
 
-from __future__ import print_function
-from __future__ import with_statement
-import subprocess
-import os
-import sys
-import shutil
-import filecmp
-import re
-import locale
+# pip install PyExifTool pytz timezonefinder
+from typing import Tuple
 from datetime import datetime, timedelta
-try:
-    import json
-except:
-    import simplejson as json
+from pytz import timezone, utc
+from timezonefinder import TimezoneFinder
+import exiftool
+import json
+import os
+import re
+import shutil
+import sys
 
 
-# fixing / workarounding issue #120
-reload(sys)
-sys.setdefaultencoding('utf-8')
+EXIFTOOL_EXECUTABLE = os.path.expanduser('~/scripts/exiftool/exiftool')
 
-# setting locale to the 'local' value
-locale.setlocale(locale.LC_ALL, '')
+MEDIA_TYPE_PHOTO = 'photo'
+MEDIA_TYPE_VIDEO = 'video'
 
-exiftool_location = os.path.expanduser('~/scripts/exiftool/exiftool')
+TAG_DATE_PHOTO = 'EXIF:DateTimeOriginal'
+TAG_DATE_VIDEO = 'QuickTime:CreateDate'
+TAG_DATE_FILE = 'File:FileModifyDate'
+TAG_GPS_LATITUDE = 'Composite:GPSLatitude'
+TAG_GPS_LONGITUDE = 'Composite:GPSLongitude'
 
 
-# -------- convenience methods ----------
+def format_offset(offset: timedelta) -> str:
+    diff_min = int(offset.total_seconds() / 60)
+    return '{sign} {hours:02d}:{minutes:02d}'.format(
+        sign='-' if diff_min < 0 else '+',
+        hours=abs(diff_min) // 60,
+        minutes=abs(diff_min) % 60)
 
 
-def parse_exif_date(date_string, use_local_time):
-    """
-    Extract date info from EXIF data
+def get_offset(lat: float, lng: float, date: datetime) -> timedelta:
+    try:
+        # get time zone name from GPS posiiton via rough offline map
+        tz_name = TimezoneFinder().certain_timezone_at(lng=lng, lat=lat)
+        if tz_name is None:
+            return None
 
-    YYYY:MM:DD HH:MM:SS
-    YYYY:MM:DD HH:MM:SS+HH:MM
-    YYYY:MM:DD HH:MM:SS-HH:MM
-    YYYY:MM:DD HH:MM:SSZ
-    """
+        # localize given date
+        tz = timezone(tz_name)
+        date_tz = tz.localize(date)
+        date_utc = utc.localize(date)
 
-    # split into date and time
-    elements = str(date_string).strip().split()  # ['YYYY:MM:DD', 'HH:MM:SS']
+        # calculate offset between dates
+        return date_utc - date_tz
 
-    if len(elements) < 1:
+    except Exception as e:
         return None
 
-    # parse year, month, day
-    date_entries = elements[0].split(':')  # ['YYYY', 'MM', 'DD']
 
-    # check if three entries, nonzero data, and no decimal (which occurs for timestamps with only time but no date)
+def parse_date(text: str) -> Tuple[datetime, timedelta]:
+
+    # YYYY:MM:DD HH:MM:SS         --> local time (mostly) or UTC time
+    # YYYY:MM:DD HH:MM:SS+HH:MM   --> local time with positive offset
+    # YYYY:MM:DD HH:MM:SS-HH:MM   --> local time with negative offset
+    # YYYY:MM:DD HH:MM:SSZ        --> indicates UTC time
+
+    # split into date and time
+    elements = str(text).strip().split()  # ['YYYY:MM:DD', 'HH:MM:SS+HH:MM']
+    if len(elements) < 1:
+        return None, None
+
+    # parse date
+    date_entries = elements[0].split(':')  # ['YYYY', 'MM', 'DD']
+    # check if three entries, nonzero year, and no decimal (occurs for timestamps with only time)
     if len(date_entries) == 3 and date_entries[0] > '0000' and '.' not in ''.join(date_entries):
         year = int(date_entries[0])
         month = int(date_entries[1])
         day = int(date_entries[2])
     else:
-        return None
+        return None, None
 
-    # parse hour, min, second
-    time_zone_adjust = False
-    hour = 12  # defaulting to noon if no time data provided
+    # default time
+    hour = 12
     minute = 0
     second = 0
 
-    if len(elements) > 1:
-        # ['HH:MM:SS', '+', 'HH:MM']
-        time_entries = re.split('(\+|-|Z)', elements[1])
-        time = time_entries[0].split(':')  # ['HH', 'MM', 'SS']
+    # default offset
+    offset = timedelta(0)
 
+    # parse time and offset
+    if len(elements) > 1:
+        time_entries = re.split('(\+|-|Z)', elements[1])  # ['HH:MM:SS', '+', 'HH:MM']
+
+        # time
+        time = time_entries[0].split(':')  # ['HH', 'MM', 'SS']
         if len(time) == 3:
             hour = int(time[0])
             minute = int(time[1])
@@ -88,198 +109,121 @@ def parse_exif_date(date_string, use_local_time):
             hour = int(time[0])
             minute = int(time[1])
 
-        # adjust for time-zone if needed
-        if not use_local_time and len(time_entries) > 2:
-            time_zone = time_entries[2].split(':')  # ['HH', 'MM']
+        # offset
+        if len(time_entries) > 2:
+            offset_entries = time_entries[2].split(':')  # ['HH', 'MM']
+            if len(offset_entries) == 2:
+                offset_hours = int(offset_entries[0])
+                offset_minutes = int(offset_entries[1])
+                offset = timedelta(hours=offset_hours, minutes=offset_minutes)
+                if time_entries[1] == '-':
+                    offset *= -1
 
-            if len(time_zone) == 2:
-                time_zone_hour = int(time_zone[0])
-                time_zone_min = int(time_zone[1])
-
-                # check if + or -
-                if time_entries[1] == '+':
-                    time_zone_hour *= -1
-
-                dateadd = timedelta(hours=time_zone_hour,
-                                    minutes=time_zone_min)
-                time_zone_adjust = True
-
-    # form date object
+    # create date object
     try:
         date = datetime(year, month, day, hour, minute, second)
     except ValueError:
-        return None  # errors in time format
+        return None, None  # most probably caused by errors in time format
 
-    # try converting it (some "valid" dates are way before 1900 and cannot be parsed by strtime later)
+    # final sanity checks
     try:
-        # any format with year, month, day, would work here.
-        date.strftime('%Y/%m-%b')
+        date.strftime('%Y/%m')  # the concrete format is not relevant here
     except ValueError:
-        return None  # errors in time format
+        return None, None  # "valid" dates before 1900 could cause trouble
 
-    # adjust for time zone if necessary
-    if time_zone_adjust:
-        date += dateadd
-
-    return date
+    return date, offset
 
 
-def get_oldest_date(data, ignore_groups, ignore_tags, use_local_time, print_all_tags=False):
-    """
-    Calculate oldest date and related keys
-    """
+def get_date(data: datetime, media_type: str) -> Tuple[datetime, str]:
 
-    # save only the oldest date
-    date_available = False
-    oldest_date = datetime.now()
-    oldest_keys = []
+    # GOAL: return local date/time, not UTC
+    #
+    # photo:
+    # - consider only EXIF:DateTimeOriginal
+    #   - de-facto standard
+    #   - single source of truth
+    #   - specified in local time
+    # - no time conversion needed
+    #
+    # video:
+    # - consider only QuickTime:CreateDate
+    #   - most commonly used
+    #   - single source of truth
+    #   - specified in UTC (but often given in local time)
+    # - conversion to local time
+    #   - calculate UTC offset via GPS position if possible
+    #   - use UTC offset from file system after heuristic check
+    #   - assume create date is given in local time, not UTC
 
-    # save src file
-    src_file = data['SourceFile']
+    if media_type == MEDIA_TYPE_PHOTO:
+        if TAG_DATE_PHOTO in data:
+            date_photo, _ = parse_date(data[TAG_DATE_PHOTO])
+            if date_photo is not None:
+                return date_photo, TAG_DATE_PHOTO + ' defined in local time'
 
-    # setup tags to ignore
-    groups_to_ignore = ['ICC_Profile'] + ignore_groups
-    tags_to_ignore = ['SourceFile', 'XMP:HistoryWhen'] + ignore_tags
+    elif media_type == MEDIA_TYPE_VIDEO:
+        if TAG_DATE_VIDEO in data:
+            date_video, _ = parse_date(data[TAG_DATE_VIDEO])
+            if date_video is not None:
+                if TAG_GPS_LATITUDE in data and TAG_GPS_LONGITUDE in data:
+                    offset_gps = get_offset(data[TAG_GPS_LATITUDE], data[TAG_GPS_LONGITUDE], date_video)
+                    if offset_gps is not None:
+                        date_video += offset_gps
+                        return date_video, TAG_DATE_VIDEO + ' in UTC ' + format_offset(offset_gps) + ' via GPS'
+                if TAG_DATE_FILE in data:
+                    date_file, offset_file = parse_date(data[TAG_DATE_FILE])
+                    if date_file is not None and offset_file is not None:
+                        if ((date_file - offset_file) - date_video).total_seconds() <= 3:
+                            date_video += offset_file
+                            return date_video, TAG_DATE_VIDEO + ' in UTC ' + format_offset(offset_file) + ' via File'
+                return date_video, TAG_DATE_VIDEO + ' assumed in local time'
 
-    if print_all_tags:
-        print('All relevant tags:')
-
-    # run through all keys
-    for key in data.keys():
-
-        # check if this key needs to be ignored, or is in the set of tags that must be used
-        if (key not in tags_to_ignore) and (key.split(':')[0] not in groups_to_ignore) and 'GPS' not in key:
-
-            date = data[key]
-
-            if print_all_tags:
-                print(str(key) + ', ' + str(date))
-
-            # (rare) check if multiple dates returned in a list, take the first one which is the oldest
-            if isinstance(date, list):
-                date = date[0]
-
-            try:
-                # check for poor-formed exif data, but allow continuation
-                exifdate = parse_exif_date(date, use_local_time)
-            except Exception as e:
-                exifdate = None
-
-            if exifdate and exifdate < oldest_date:
-                date_available = True
-                oldest_date = exifdate
-                oldest_keys = [key]
-
-            elif exifdate and exifdate == oldest_date:
-                oldest_keys.append(key)
-
-    if not date_available:
-        oldest_date = None
-
-    if print_all_tags:
-        print()
-
-    return src_file, oldest_date, oldest_keys
+    return None, None
 
 
-class ExifTool(object):
-    """
-    Run ExifTool from Python and keep it open
+def sort(media_type: str, src_dir: str, dst_dir: str,
+         copy: bool, keep: bool, test: bool, verbose: bool, recursive: bool,
+         subdir_format: str, filename_format: str, if_condition: str):
 
-    http://stackoverflow.com/questions/10075115/call-exiftool-from-a-python-script
-    """
+   # validate source directory
 
-    sentinel = '{ready}'
-
-    def __init__(self, executable=exiftool_location):
-        self.executable = executable
-
-    def __enter__(self):
-        self.process = subprocess.Popen(
-            ['perl', self.executable, '-stay_open', 'True',  '-@', '-'],
-            stdin=subprocess.PIPE, stdout=subprocess.PIPE)
-        return self
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        self.process.stdin.write(b'-stay_open\nFalse\n')
-        self.process.stdin.flush()
-
-    def execute(self, *args):
-        args = args + ('-execute\n',)
-        self.process.stdin.write(str.join('\n', args).encode('utf-8'))
-        self.process.stdin.flush()
-        output = ''
-        fd = self.process.stdout.fileno()
-        while not output.rstrip(' \t\n\r').endswith(self.sentinel):
-            increment = os.read(fd, 4096)
-            output += increment.decode('utf-8')
-        return output.rstrip(' \t\n\r')[:-len(self.sentinel)]
-
-    def get_metadata(self, *args):
-        try:
-            return json.loads(self.execute(*args))
-        except ValueError:
-            sys.stdout.write('\nNo files to parse or invalid data\n')
-            exit()
-
-
-# ---------------------------------------
-
-
-def sort(src_dir, dest_dir, sort_format, rename_format,
-         recursive=False, copy_files=False, verbose=True, test=False, remove_duplicates=True,
-         ignore_groups=['File'], ignore_tags=[], use_only_groups=None, use_only_tags=None,
-         use_local_time=False, if_condition=None):
-    """
-    Convenience wrapper around ExifTool based on common usage scenarios
-    """
-
-    # some error checking
     if not os.path.exists(src_dir):
         print('Source directory does not exist')
-        exit()
+        exit(1)
     if not os.path.isdir(src_dir):
         print('Source path is not a directory')
-        exit()
+        exit(1)
 
-    # setup arguments to exiftool
-    args = ['-j', '-a', '-G']
+    # preprocessing with ExifTool
 
-    # setup if clause for exiftool
-    if if_condition and not if_condition.isspace():
+    args = ['-a', '-G']
+
+    if media_type == MEDIA_TYPE_PHOTO:
+        args += ['-' + TAG_DATE_PHOTO]
+    elif media_type == MEDIA_TYPE_VIDEO:
+        args += ['-' + TAG_DATE_VIDEO, '-' + TAG_DATE_FILE,
+                 '-' + TAG_GPS_LATITUDE + '#', '-' + TAG_GPS_LONGITUDE + '#']
+    if if_condition:
         args += ['-if', if_condition]
-
-    # setup tags to ignore
-    if use_only_tags is not None:
-        ignore_groups = []
-        ignore_tags = []
-        for t in use_only_tags:
-            args += ['-' + t]
-    elif use_only_groups is not None:
-        ignore_groups = []
-        for g in use_only_groups:
-            args += ['-' + g + ':Time:All']
-    else:
-        args += ['-time:all']
-
     if recursive:
         args += ['-r']
-
     args += [src_dir]
 
-    # get all metadata
-    with ExifTool() as e:
+    with exiftool.ExifTool(EXIFTOOL_EXECUTABLE) as et:
         print('Preprocessing with ExifTool ...')
-        sys.stdout.flush()
-        metadata = e.get_metadata(*args)
+        try:
+            metadata = et.execute_json(*args)
+        except ValueError:
+            print('\nNo files to parse or invalid data')
+            exit(1)
 
     if verbose:
-        print()
-        print('JSON result of image files read:')
+        print('\nJSON result of source files read:')
         print(json.dumps(metadata, indent=2))
 
-    print()
-    print('Final processing with Python ...')
+    # final processing with Python
+
+    print('\nFinal processing with Python ...')
 
     num_files = len(metadata)
     num_ignored = 0
@@ -289,7 +233,7 @@ def sort(src_dir, dest_dir, sort_format, rename_format,
 
     if test:
         mode = 'TEST'
-    elif copy_files:
+    elif copy:
         mode = 'COPY'
     else:
         mode = 'MOVE'
@@ -297,196 +241,168 @@ def sort(src_dir, dest_dir, sort_format, rename_format,
     if test:
         test_file_dict = {}
 
-    # parse output extracting oldest relevant date
     for idx, data in enumerate(metadata):
 
-        # extract oldest date for photo
-        src_file, date, keys = get_oldest_date(
-            data, ignore_groups, ignore_tags, use_local_time)
+        # extract source file
+        src_file = data['SourceFile']
 
-        # fixes further errors when using unicode characters like "\u20AC"
-        src_file.encode('utf-8')
+        # extract date and info
+        date, info = get_date(data, media_type)
 
+        # print progress info/bar
         if verbose:
-            # progress info
-            print()
-            print('[' + str(idx+1) + '/' + str(num_files) + '] ' + mode)
-            print('Source: ' + src_file)
+            print('\n[' + str(idx + 1) + '/' + str(num_files) + '] ' + mode)
+            print('Source file: ' + src_file)
         else:
-            # progress bar
-            numdots = int(20.0*(idx+1)/num_files)
-            sys.stdout.write('\r')
-            sys.stdout.write('[%-20s] %d / %d ' %
-                             ('='*numdots, idx+1, num_files))
+            num_dots = int(20.0 * (idx + 1) / num_files)
+            sys.stdout.write('\r[%-20s] %d / %d' % ('=' * num_dots, idx + 1, num_files))
             sys.stdout.flush()
 
-        # ignore files and folders starting with '.', '@' or '#'
-        if (src_file.startswith('.') and not src_file.startswith('./')) or ((os.path.sep + '.') in src_file):
+        # ignore paths with .|@|#
+        if (src_file.startswith('.') and not src_file.startswith('.' + os.path.sep)) or ((os.path.sep + '.') in src_file):
             if verbose:
-                print('Ignoring file due to special meaning of "." in path.')
+                print('Please note: Ignoring file due to special meaning of "." in path.')
             num_ignored += 1
             continue
         if src_file.startswith('@') or ((os.path.sep + '@') in src_file):
             if verbose:
-                print('Ignoring file due to special meaning of "@" in path.')
+                print('Please note: Ignoring file due to special meaning of "@" in path.')
             num_ignored += 1
             continue
         if src_file.startswith('#') or ((os.path.sep + '#') in src_file):
             if verbose:
-                print('Ignoring file due to special meaning of "#" in path.')
+                print('Please note: Ignoring file due to special meaning of "#" in path.')
             num_ignored += 1
             continue
 
-        # check if no valid date found
+        # ignore files without date
         if not date:
             if verbose:
-                print('Ignoring file without valid dates in specified tags.')
+                print('Please note: Ignoring file without valid date in relevant tag(s).')
             num_ignored += 1
             continue
 
+        # print tag and date info
         if verbose:
-            print('Date Time (Tag): ' + str(date) +
-                  ' (' + ', '.join(keys) + ')')
+            print('Date & time: ' + str(date) + ' (' + info + ')')
 
         # create folder structure
-        dir_structure = date.strftime(sort_format)
-        dirs = dir_structure.split('/')
-        dest_file = dest_dir
-        for thedir in dirs:
-            dest_file = os.path.join(dest_file, thedir)
-            if not test and not os.path.exists(dest_file):
-                os.makedirs(dest_file)
+        dst_subdirs_path = date.strftime(subdir_format)
+        dst_subdirs = dst_subdirs_path.split('/')
+        dst_file = dst_dir
+        for dst_subdir in dst_subdirs:
+            dst_file = os.path.join(dst_file, dst_subdir)
+            if not test and not os.path.exists(dst_file):
+                os.makedirs(dst_file)
 
         # rename file if necessary
         filename = os.path.basename(src_file)
-
-        if rename_format is not None and date is not None:
+        if filename_format is not None:
+            name = date.strftime(filename_format)
             _, ext = os.path.splitext(filename)
             ext = ext.lower()
             if ext == '.jpeg':
                 ext = '.jpg'
-            filename = date.strftime(rename_format) + ext
+            filename = name + ext
 
         # setup destination file
-        dest_file = os.path.join(dest_file, filename)
-        root, ext = os.path.splitext(dest_file)
+        dst_file = os.path.join(dst_file, filename)
+        dst_root, dst_ext = os.path.splitext(dst_file)
 
+        # print destination file
         if verbose:
-            print('Destination: ' + dest_file)
+            print('Destination: ' + dst_file)
 
         # check for collisions
-        append = 1
-        fileIsIdentical = False
-
+        same_name_appendix = 1
+        identical_file_exists = False
         while True:
-            fileExists = os.path.isfile(dest_file)
-            if (fileExists or (test and dest_file in test_file_dict.keys())):  # check for existing name
-                if fileExists:
-                    dest_compare = dest_file
+            same_filename_exists = os.path.isfile(dst_file)
+            if (same_filename_exists or (test and dst_file in test_file_dict.keys())):
+                if same_filename_exists:
+                    dst_compare = dst_file
                 else:
-                    dest_compare = test_file_dict[dest_file]
+                    dst_compare = test_file_dict[dst_file]
 
-                # check for identical files
-                if remove_duplicates and filecmp.cmp(src_file, dest_compare):
-                    fileIsIdentical = True
+                if keep and filecmp.cmp(src_file, dst_compare):
+                    identical_file_exists = True
                     if verbose:
-                        print(
-                            'Identical file with same name already exists in destination.')
+                        print('Identical file with same name already exists in destination.')
                     break
-                else:  # name is same, but file is different
-                    dest_file = root + '_' + str(append) + ext
-                    append += 1
+                else:
+                    dst_file = dst_root + '_' + str(same_name_appendix) + dst_ext
+                    same_name_appendix += 1
                     if verbose:
-                        print(
-                            'Different file with same name already exists in destination.')
-                        print('Renaming to: ' + dest_file)
+                        print('Different file with same name already exists in destination.')
+                        print('Renaming to: ' + dst_file)
             else:
                 break
-
         if test:
-            test_file_dict[dest_file] = src_file
+            test_file_dict[dst_file] = src_file
 
         # finally move or copy the file
-        if fileIsIdentical:
+        if identical_file_exists:
             num_duplicates += 1
             if not test:
-                if copy_files:
-                    continue  # ignore identical files
+                if copy:
+                    continue
                 else:
                     os.remove(src_file)
         else:
             num_processed += 1
-            processed.append((src_file, dest_file))
+            processed.append((src_file, dst_file))
             if not test:
-                if copy_files:
-                    shutil.copy2(src_file, dest_file)
+                if copy:
+                    shutil.copy2(src_file, dst_file)
                 else:
-                    shutil.move(src_file, dest_file)
+                    shutil.move(src_file, dst_file)
 
     print()
-    print(str(num_ignored).rjust(5) + ' image files ignored')
+    print(str(num_ignored).rjust(5) + ' files ignored')
     print(str(num_duplicates).rjust(5) + ' duplicates skipped')
-    print(str(num_processed).rjust(5) + ' images processed')
+    print(str(num_processed).rjust(5) + ' files processed')
     print()
 
     if num_processed > 0:
         for src, dst in processed:
             print(mode + ': ' + src + ' --> ' + dst)
     else:
-        print('No files ' + ('copied' if copy_files else 'moved') + ' to destination')
+        print('No files ' + ('copied' if copy else 'moved') + ' to destination')
 
 
 def main():
     import argparse
 
-    # setup command line parsing
     parser = argparse.ArgumentParser(formatter_class=argparse.RawTextHelpFormatter,
                                      description='Organizes photos and videos into folders using date/time')
-    parser.add_argument('src_dir', type=str, help='source directory')
-    parser.add_argument('dest_dir', type=str, help='destination directory')
-    parser.add_argument('-r', '--recursive', action='store_true',
-                        help='search src_dir recursively')
+    parser.add_argument('media_type', type=str, choices=['photo', 'video'],
+                        help='media type')
+    parser.add_argument('src_dir', type=str,
+                        help='source directory')
+    parser.add_argument('dst_dir', type=str,
+                        help='destination directory')
     parser.add_argument('-c', '--copy', action='store_true',
-                        help='copy files instead of move')
-    parser.add_argument('-s', '--silent', action='store_true',
-                        help='reduce output to minimum')
+                        help='copy files instead of moving files')
+    parser.add_argument('-k', '--keep', action='store_true',
+                        help='keep duplicate files after renaming')
     parser.add_argument('-t', '--test', action='store_true',
                         help='dry run without actual changes')
-    parser.add_argument('--sort', type=str, default='%Y/%m-%b',
-                        help='choose destination folder structure using datetime format \n\
-    * https://docs.python.org/2/library/datetime.html#strftime-and-strptime-behavior \n\
-    * use forward slashes to indicate subdirectoryies (independent of OS convention) \n\
-    * the default is "%%Y/%%m-%%b" (e.g. 2012/02-Feb)')
-    parser.add_argument('--rename', type=str, default=None,
-                        help='rename file using format codes \n\
-    * https://docs.python.org/2/library/datetime.html#strftime-and-strptime-behavior \n\
-    * the default is None which just uses the original filename')
-    parser.add_argument('--keep-duplicates', action='store_true', default=False,
-                        help='if file is a duplicate keep it anyway (after renaming)')
-    parser.add_argument('--ignore-groups', type=str, nargs='+', default=[],
-                        help='a list of tag groups that will be ignored for date informations \n\
-    * list of groups/tags: http://www.sno.phy.queensu.ca/~phil/exiftool/TagNames/ \n\
-    * by default the group "File" is ignored which contains file timestamp data')
-    parser.add_argument('--ignore-tags', type=str, nargs='+', default=[],
-                        help='a list of tags that will be ignored for date informations \n\
-    * list of groups/tags: http://www.sno.phy.queensu.ca/~phil/exiftool/TagNames/ \n\
-    * the full tag name needs to be included (e.g. EXIF:CreateDate)')
-    parser.add_argument('--use-only-groups', type=str, nargs='+', default=None,
-                        help='specify a restricted set of groups to search for date information (e.g. EXIF)')
-    parser.add_argument('--use-only-tags', type=str, nargs='+', default=None,
-                        help='specify a restricted set of tags to search for date info (e.g. EXIF:CreateDate)')
-    parser.add_argument('--use-local-time', action='store_true', default=False,
-                        help='disables time zone adjustements and uses local time instead of UTC time')
-    parser.add_argument('--if-condition', type=str, default=None,
-                        help='a condition clause passed to ExifTool in order to filter files that get processed')
+    parser.add_argument('-v', '--verbose', action='store_true',
+                        help='print some more output to console')
+    parser.add_argument('-r', '--recursive', action='store_true',
+                        help='search source directory recursively')
+    parser.add_argument('-s', '--subdirs', metavar='X', type=str, default='%Y/%m',
+                        help='destination subdirectory structure\n* use strftime format codes for dates\n* use forward slashes for subdirectories\n* the default is "%%Y/%%m" (e.g. 2020/02)')
+    parser.add_argument('-f', '--filename', metavar='X', type=str, default=None,
+                        help='destination file name pattern\n* use strftime format codes for dates\n* the default is "None" (original name)')
+    parser.add_argument('-i', '--condition', metavar='X', type=str, default=None,
+                        help='if condition passed to ExifTool\n* the default is "None" (use all files)')
 
-    # parse command line arguments
     args = parser.parse_args()
 
-    sort(args.src_dir, args.dest_dir, args.sort, args.rename,
-         args.recursive, args.copy, not args.silent, args.test, not args.keep_duplicates,
-         args.ignore_groups, args.ignore_tags, args.use_only_groups, args.use_only_tags,
-         args.use_local_time, args.if_condition)
+    sort(args.media_type, args.src_dir, args.dst_dir,
+         args.copy, args.keep, args.test, args.verbose, args.recursive,
+         args.subdirs, args.filename, args.condition)
 
 
 if __name__ == '__main__':
