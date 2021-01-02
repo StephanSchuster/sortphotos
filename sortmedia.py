@@ -19,6 +19,7 @@ from datetime import datetime, timedelta
 from pytz import timezone, utc
 from timezonefinder import TimezoneFinder
 import exiftool
+import filecmp
 import json
 import os
 import re
@@ -324,7 +325,7 @@ def sort(media_type: str, src_dir: str, dst_dir: str,
                 else:
                     dst_compare = test_file_dict[dst_file]
 
-                if keep and filecmp.cmp(src_file, dst_compare):
+                if not keep and filecmp.cmp(src_file, dst_compare):
                     identical_file_exists = True
                     if verbose:
                         print('Identical file with same name already exists in destination.')
