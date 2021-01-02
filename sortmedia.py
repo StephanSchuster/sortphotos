@@ -174,7 +174,7 @@ def get_date(data: datetime, media_type: str) -> Tuple[datetime, str]:
                 if TAG_DATE_FILE in data:
                     date_file, offset_file = parse_date(data[TAG_DATE_FILE])
                     if date_file is not None and offset_file is not None:
-                        if ((date_file - offset_file) - date_video).total_seconds() <= 3:
+                        if abs(((date_file - offset_file) - date_video).total_seconds()) <= 3:
                             date_video += offset_file
                             return date_video, TAG_DATE_VIDEO + ' in UTC ' + format_offset(offset_file) + ' via File'
                 return date_video, TAG_DATE_VIDEO + ' assumed in local time'
