@@ -198,7 +198,6 @@ def sort(media_type: str, src_dir: str, dst_dir: str,
     # preprocessing with ExifTool
 
     args = ['-a', '-G']
-
     if media_type == MEDIA_TYPE_PHOTO:
         args += ['-' + TAG_DATE_PHOTO]
     elif media_type == MEDIA_TYPE_VIDEO:
