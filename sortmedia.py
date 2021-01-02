@@ -285,7 +285,8 @@ def sort(media_type: str, src_dir: str, dst_dir: str,
 
         # print tag and date info
         if verbose:
-            print('Date & time: ' + str(date) + ' (' + info + ')')
+            print('Tag details: ' + info)
+            print('Date & time: ' + str(date))
 
         # create folder structure
         dst_subdirs_path = date.strftime(subdir_format)
@@ -328,13 +329,13 @@ def sort(media_type: str, src_dir: str, dst_dir: str,
                 if not keep and filecmp.cmp(src_file, dst_compare):
                     identical_file_exists = True
                     if verbose:
-                        print('Identical file with same name already exists in destination.')
+                        print('Please note: Identical file with same name exists in destination.')
                     break
                 else:
                     dst_file = dst_root + '_' + str(same_name_appendix) + dst_ext
                     same_name_appendix += 1
                     if verbose:
-                        print('Different file with same name already exists in destination.')
+                        print('Please note: Different file with same name exists in destination.')
                         print('Renaming to: ' + dst_file)
             else:
                 break
